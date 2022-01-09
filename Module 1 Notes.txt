@@ -331,7 +331,7 @@ Six different structures that have been tried
   
 
 ====================================================
-1.7.1: Monolithic Systems
+1.7.1: Monolithic Systems (1)
 ====================================================
 
 This is the most common organization of the system
@@ -360,8 +360,151 @@ Loadable extensions such as I/O device drivers, and file systems are loaded on d
 
 
 ====================================================
-1.7.2: Layered Systems
+1.7.2: Layered Systems (2)
 ====================================================
 
+THE: 
+- A 6-Layer Approach to System constructed by E. W. Dijkstra (1968)
 
+LAYER |       FUNCTION
+______________________________________________
+  5   | The operator
+  4   | User programs
+  3   | Input/output management
+  2   | Operator-process communication
+  1   | Memory and drum management
+  0   | Processor allocation and multiprogramming
+  
+- Ultimately a design aid, as all parts of systems were linked by single executable program
+  
+MULTICS:
+- Genralization of layering concept
+- Used a series of concentric rings, with inner rings being more privileged than outer rings
+- Present at run-time and enforced by hardware
+
+
+====================================================
+1.7.3: Microkernels (3)
+====================================================
+
+Goal is to achieve high reliability by splitting OS into small, well-defined modules
+- Only one of which, the micro-kernel, runs in kernel mode
+- The rest runs as powerless ordinary user processes
+- Bugs in single components can no longer crash entire system
+
+Outside of the kernel system has three layers of processes running in user mode:
+  1.) Drivers (Bottom)
+  2.) Servers (Middle)
+  3.) User Programs (Top)
+
+
+====================================================
+1.7.4: Client-Server Model (4)
+====================================================
+
+Variation of the Microkernel system of organization
+
+Distinguishes between two classes of processes
+  1.) Servers
+    > Each provides some service
+	
+  2.) Clients
+    > Use these services
+	
+Clients and services can run on different computers, connected by a network if needed. 
+
+This is the way that much of the web operates
+
+
+====================================================
+1.7.5: Virtual Machines (5)
+====================================================
+
+Virtual Machine Monitor:
+- Heart of system
+- Runs on the bare hardware and does the multiprogramming
+- Provides several virtual machines to the next layer up
+
+Virtual machines are not extended machines. They are exact copies of the bare hardware including Kernel, I/O, etc.
+
+VMs allow for content hosting to run off of one machine, without one process crashing entire site or system.
+
+A single physical machine can run several VMs, each of which appears to be a complete machine
+
+Type 1 Hypervisors: Virtual machine monitor (Running Linux VM on Windows machine with no underlying support)
+
+Type 2 Hypervisors: Similar to Type 1, but makes use of underlying host OS to store files, create processes, etc.
+
+Java Virtual Machine: Java compiler produces code for JVM, and can be shipped to other JVMs. Increases checks for safety
+
+
+====================================================
+1.7.6: Exokernels (6)
+====================================================
+
+Divides machine by partioning sections for each user to have virtual machine. 
+
+Exokernel allocates resources to virtual machines and checks attempts to use them to make sure nobody is trying to use
+someone else's resources
+
+Exokernel saves a layer of mapping compared to other designs. Only needs to keep track of which VMs have been assigned which resource. 
+
+
+====================================================
+1.8: The World According to C
+====================================================
+====================================================
+1.8.1: The C Language
+====================================================
+
+Primitive Data Types in C:
+  1.) Integers (Short and Long)
+  2.) Characters
+  3.) Floats
+
+C utilizes explicit pointers unlike Java and Python
+
+
+====================================================
+1.8.2: Header Files
+====================================================
+
+.h File type
+
+Use simple macros like: #define max(a,b) (a > b ? a:b)
+
+Use #ifdef ... #endif or #ifndef ... #endif to properly define functions and imports as needed
+
+
+====================================================
+1.8.3: Large Programming Projects
+====================================================
+
+Each .c file is compiled into an object file by the C compiler (.o files)
+
+C preprocessor does first pass over file. When it sees #include, goes to header file and processes it
+
+make:
+- Program called make on UNIX systems
+- Reads Makefile, which tells which object files are needed to build OS binary, and if they have been modified, thus needing to be recompiled
+- When make determines which .c files need to be recompiled, it calls the C compiler to recompile them
+- Error prone in large projects, so there are tools which can do it automatically
+
+
+When all .o files are ready, passed to linker which combines them into single executable binary file
+- Final executable program is traditionally called a.out on UNIX systems
+
+
+====================================================
+1.8.4: The Model of Run Time
+====================================================
+
+Text segment is normally immutable
+- Placed near bottom of memory, right below the data segment
+
+Data segment ususally starts at a certain size and grows as needed
+- Grows upward
+
+Stack is initially empty, but grows and shrinks as functions are called and returned. 
+- Grows downward
 
