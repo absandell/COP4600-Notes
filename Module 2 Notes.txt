@@ -1,0 +1,361 @@
+>>>>>   2.1 - 2.2 Notes   <<<<<
+________________________________
+
+====================================================
+2.1: Processes
+====================================================
+
+Webserver:
+- Requests come in asking for webpages
+- Server checks to see if page is in cache
+- If it is, sent back
+- If it is not, disk request is started to fetch it
+  > Because disk requests take so long, more requests may come in
+  > To manage this, other processes and threads can help
+  
+Multiprogramming System:
+- CPU switches from process to process fast enough to give the illusion of parallelism
+- People call this pseudoparallelism as opposed to true multiprocessor systems
+
+
+====================================================
+2.1.1: The Process Model
+====================================================
+
+In this model, all runnable software on computer, including the OS, is organized into a number of sequential processes
+
+A process is an instace of an executing program
+
+Conceptually, each process has it's own virtual CPU (real CPU switches from program to program)
+
+Key Idea:
+- Process is an activity of some kind
+- Has a program, input, output, and a state
+- Single processor may be shared among several processes, with a scheduling algorithm to determine when to start and stop work
+- Programs are stored on disk, not doing anything
+- If a program is running twice, it counts as two processes
+
+
+====================================================
+2.1.2: Process Creation
+====================================================
+
+Four Events Cause Process Creation:
+  1.) System initialization
+  2.) Execution of a process-creation system call by a running process
+  3.) A user request to create a new process
+  4.) Initiation of a batch job
+  
+Foreground Processes:
+- Process that interact with users and perform work for them
+
+Background Processes (Daemons):
+- Not associated with users, but have specific functions
+
+In UNIX there is only one system call to create a new process: fork
+- fork creates an exact clone of the calling process
+- Parent and child process have same memory image, same environment strings, and same open files
+- Child process executes execve or similar system call to change memory image and run new program
+
+In Windows, we use: CreateProcess
+- Handles both process creation and loading the correct program into the new process
+- Has 10 parameters in call
+
+In both Windows and UNIX:
+- After process is created, parent and child have their own distinct address space
+- No writable memory is shared between parent and child
+
+
+====================================================
+2.1.3: Process Termination
+====================================================
+
+Four Events Cause Process Termination:
+  1.) Normal exit (voluntary)
+  2.) Error exit (voluntary)
+  3.) Fatal error (involuntary)
+  4.) Killed by another process (involuntary)
+  
+UNIX: exit
+Windows: ExitProcess
+
+
+====================================================
+2.1.4: Process Hierarchies
+====================================================
+
+Child processes can create more processes, forming a process hierarchy
+
+On UNIX Boot-Up:
+- init is a process present in the boot image
+- When init runs, it reads a file telling how many terminals there are, then forks a process per terminal
+- If a login to a terminal is successful, the login process executes a shell to accept commands
+- From here on, processes can be executed, starting other processes, and so on. init remains the root
+
+Windows has no concept of a process hierarchy:
+- All processes are equal
+- When a process is created, the parent is given a special token (handle) to control child. This token can be passed to another process
+
+
+====================================================
+2.1.5: Process States
+====================================================
+
+Process can be in three states:
+  1.) Running (actually using the CPU at that instant)
+  2.) Ready (runnable; temporarily stopped to let another process run)
+  3.) Blocked (unable to run until some external event happens)
+- 1 and 2 are similar, only in second, there is no CPU available for it
+
+Four Transitions are available between Three States:
+  1.) Process blocks for input (Running -> Blocked)
+	- Occurs when OS discovers process cannot continue at present
+
+  2.) Scheduler picks another process (Running -> Ready)
+	- Caused by process scheduler, without process even knowing about them
+	- Occurs when scheduler decides that the running process has run long enouch and it is time to switch
+
+  3.) Scheduler picks this process (Ready -> Running)
+	- Caused by process scheduler, without process even knowing about them
+	- Occurs when all the other processes have had their fair share and time to circle back to first processes
+
+  4.) Input becomes available (Blocked -> Ready)
+	- Occurs when the external even for which a process was waiting occurs
+  
+
+====================================================
+2.1.6: Implementation of Processes
+====================================================
+
+Process Table:
+- Table with one entry per process maintained by OS
+- Entry contains information about process' state, program counter, stack pointer, memory allocation, status of open files, etc.
+- Saved before switch between block and ready
+
+Interrupt Vector:
+- Location associated with each I/O class
+- Contains address of the interrupt service procedure
+
+Interrupts:
+  1.) Start by saving registers in process table entry for current process
+  2.) Information pushed on stack is removed
+  3.) Stack pointer is set to point to a temporary stack by the process handler
+  4.) Calls C procedure to do rest of interrupt work
+  5.) Scheduler is called to see who to run next
+  6.) Control is passed to load up registers and memory map for now-current process and start it running
+  
+Processes may be interrupted thousands of times during it's execution
+
+
+====================================================
+2.1.7: Modeling Multiprogramming
+====================================================
+
+When multiprogramming is used, CPU utilization can be improved
+
+Viewing CPU usage from probabiliztic point of view:
+- With n processes in memory at once, probability of all n processes are waiting for I/O is p^n
+- CPU utilization = 1-p^n
+- Logarithmic functions
+- Only an approximation, assumes all n processes are indpendent
+- Initial additions to memory size are more effective than later additions
+
+
+====================================================
+2.2: Threads
+====================================================
+====================================================
+2.2.1: Thread Usage
+====================================================
+
+Arguments for Threads:
+  1.) Threads add the ability for the parallel entities to share an address space and all of its data among themselves
+	- Essential for certain applications, which is why having multiple processes (with seperate address spaces) will not work
+  
+  2.) Lighter weight than process
+    - Faster, easier to create and destory than processes
+
+  3.) Performance Gain
+    - Threads have no performance gain when all are CPU bound
+	- Gains in speed when substantial computing or I/O occurs due to overlapping activities
+	
+  4.) Useful on systems with multiple CPUs, where real parallelism is possible
+  
+Ex.) Word Processor with 3 Threads
+  1.) Keyboard
+  2.) Text formatting and processing
+  3.) Disk
+
+Finite-state Machine:
+- Design in which each computation has a saved state
+- Some events can occur to change the state
+- Widely used in CS
+
+Three Ways to Construct a Server:
+  1.) Threads
+    - Parallelism, blocking system calls
+  
+  2.) Single-threaded process
+    - No parallelism, blocking system calls
+  
+  3.) Finite-state machine
+    - Parallelism, nonblocking system calls, interrupts
+	
+
+====================================================
+2.2.2: The Classical Thread Model
+====================================================
+
+Different approaches to a process:
+  1.) Process
+    - A way to group related resources together
+	- Has an address space containing program text, data, and other resources
+	- Can be managed more easily together
+	
+  2.) Thread
+    - Has a program counter that keeps track of which instruction to execute next
+	- Register whoch hold working variables
+	- Stack with execution history
+	- Entities scheduled for execution on CPU
+	- Adds ability to allow multiple executions to take place in the same process environment
+	
+Multithreading:
+- Situation of allowing multiple threads in the same process
+
+Every thread can access every memory address within the process' address space
+- On thread can read, write, or even wipe out another thread's stack
+- No protection between threads because it is impossible and should not be necessary
+
+Shared by all threads in a process:
+  1.) Address space
+  2.) Global variables
+  3.) Open files
+  4.) Child processes
+  5.) Pending alarms
+  6.) Signals and signal handlers
+  7.) Accounting information
+  
+Items private to each thread:
+  1.) Program counter
+  2.) Registers
+  3.) Stack
+  4.) State
+
+
+====================================================
+2.2.3: POSIX Threads
+====================================================
+
+Major Thread Calls:
+  1.) Pthread_create
+    - Create a new thread
+	
+  2.) Pthread_exit
+    - Terminate the calling thread
+  
+  3.) Pthread_join
+    - Wait for a specific thread to exit
+  
+  4.) Pthread_yield
+    - Release the CPU to let another thread run
+  
+  5.) Pthread_attr_init
+    - Create and initialize a thread's attribute structure
+  
+  6.) Pthread_attr_destroy
+    - Remove a thread's attribute structure
+
+
+====================================================
+2.2.4: Implementing Threads in User Space
+====================================================
+
+User Space
+- Kernel knows nothing about them
+- Kernel thinks it is managing ordinary, single-threaded processes
+- Each process needs its own private thread table to keep track only of the per-thread properties
+  > Each thread's program counter, stack pointer, registers, state, etc.
+  > Information needed for restart stored here
+  > Like kernel process table
+- Allow processes to have own customized scheduling algorithm
+- Scale better than kernel becuase no need for table space and stack space
+- Problems with user-level threads
+  1.) Blocking implementation
+  2.) First thread needs to give up CPU for other threads to run
+  3.) User-level threads would be wanted in applications in which threads often block
+
+====================================================
+2.2.5: Implementing Threads in the Kernel
+====================================================
+
+Kernel
+- No run-time system is needed
+- No thread table in each process
+- Kernel maintains thread table to keep track of all threads in system
+- Kernel call is made to handle creation or destruction by updating kernel table
+- Threads are sometimes recycled due to greater cost to make a kernel call
+- Main Disadvantage:
+  > Cost of system call is substantial
+  > Common overhead will be incurred
+  > Signal handling is complex
+  > Multithreaded process forking is hard to prioritize
+
+
+====================================================
+2.2.6: Hybrid Implementations
+====================================================
+
+Kernel is only aware of kernel thread and handles those
+- Some may have multiple user-level threads multiplexed on top of them
+
+Each kernel-level thread has some set of user-level threads that take turns using it
+
+
+====================================================
+2.2.7: Scheduler Activations
+====================================================
+
+Kernel threads are better than user-level in many ways, but definitely slower
+
+Solution needed!
+
+Scheduler Activations:
+- Mimics functionality of kernel threads, but with better performance and greater flexibility
+- When a thread blocks, it should be possible to run other threads in same process if they are ready
+- Kernel assigns a number of virtual processors to each process and lets run-time system allocate threads to processors
+- Kernel can adjust number of virtual processors as needed to improve efficiancy
+- This works because kernel passes a description and location of thread when block occurs. Sends a upcall. Basically a signal
+- When activated, run-time system reschedules threads, moves another available thread from the ready list, and restarts it
+- Blocked thread can be restarted whenever convenient
+
+When a hardware interrupt occurs when user thread is running, interrupted CPU switches to Kernel mode
+- If process interrupt is interesting, don't restart it yet
+
+Upcalls violate inherent structure in any layered system. Layer n can call on procedures in layer n + 1
+
+
+====================================================
+2.2.8: Pop-Up Threads
+====================================================
+
+Pop-Up Thread:
+ - Creation is triggered by the arrival of a message
+ - Advantage
+   > Brand new, no history, registers, stack, etc. to be restored
+   > Easy and quick to create
+   > Reduces latency between message arrival and processing start
+ - Having Pop-Up thread run in kernel space is easier and faster than in user-space
+ - If in kernel, can easily access all kernel tables and the I/O devices
+ - Buggy Kernels will be more damaging than a buggy user thread (High Potential Damages / High Reward Tradeoff)
+   
+
+====================================================
+2.2.9: Making Single-Threaded Code Multithreaded
+====================================================
+
+Problems with converting to multi-thread:
+  1.) Thread-Global but not Program-Global variables are a problem
+  2.) Many library procedures are not designed to have a second call made before first call has finished
+  3.) If threads are in user-space, kernel does not know they exist and cannot direct signals to them as needed. Who gets what and when?
+  4.) Stack management. If there are multiple threads, there must be multiple stacks
+
