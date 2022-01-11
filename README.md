@@ -1,5 +1,7 @@
 # COP4600-Notes
 
+## Latest Notes: Module 2
+
 ## About
 This is a collection of my notes pertaining to COP4600 for the Spring 2022 semester at the University of Florida.
 
