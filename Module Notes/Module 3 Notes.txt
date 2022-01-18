@@ -1,0 +1,210 @@
+>>>>>   2.3, 2.5 Notes   <<<<<
+________________________________
+
+====================================================
+2.3: Interprocess Communication
+====================================================
+
+Three Problems:
+  1.) How one process can pass information to another
+  2.) Making sure two processes don't get in eachother's way
+  3.) Proper sequencing of dependencies
+  
+
+====================================================
+2.3.1: Race Conditions
+====================================================
+
+Race Conditions:
+- Situations where two or more processes are reading or writing some shared data and the 
+  final result depends on who runs precisely when.
+
+====================================================
+2.3.2: Critical Regions
+====================================================
+
+Solution to Race Conditions:
+- Mutual Exclusion: Some way of making sure that if one process is using a shared variable
+  or file, other processes will be excluded from doing the same thing.
+  
+Critical Region / Critical Section:
+- Part of the program where shared memory is accessed
+
+Four Conditions Needed for a Good Solution:
+  1.) No two processes may be simulatneously inside their critical regions
+  2.) No assumptions may be made about speeds or the number of CPUs
+  3.) No process running outside its critical region may block any process
+  4.) No process should have to wait orever to enter its critical region
+  
+
+====================================================
+2.3.3: Mutual Exclusion with Busy Waiting
+====================================================
+
+Disabling Interrupts:
+- On a single processor solution, just have a process diable all interrupts after entering
+  critical region and enable before leaving its
+- Poses risk because what if they never come back on?
+- If there's more than one CPU, doesn't stop the other from running.
+- Useful, but not really a suitable solution
+
+Lock Variables:
+- Shared lock variable (0) used as a flag
+- Enters critical region, sets lock to 1, 0 before it leaves
+
+Strict Alternation:
+- Spin Lock: Use busy waiting loop 
+- Hang in loop until critical region is available. Implemented using while(TRUE)
+- Problem with taking turns (one fast, one slow) as it's inefficient
+- Therefore violates rule 3, not a great solution
+
+Peterson's Solution:
+- Before entering critical region, each process calls enter_region with own process #
+- Waits until it is safe to enter
+- After process finishes, calls leave_region to allow other processes to enter
+- Array to keep track
+
+TSL Instruction:
+- Computer has instruction like TSL RX,LOCK
+  > Reads contents of the memory work lock into register RX and stores a nonzero value at lock
+- CPU executing TSL locks memory bus to prohibit other CPUs from accessing memory until it's done
+- Use shared variable lock to coordinate access to shared memory
+
+====================================================
+2.3.4: Sleep and Wakeup
+====================================================
+
+Both Peterson's Solution and TSL Instruction require busy waiting, but do work
+- Wastes CPU time and can have unexpected effects leading to infinite loops (priority inversion problem)
+
+The Producer-Consumer Problem:
+- aka Bounded-Buffer Problem
+- Producer puts items in buffer, consumer takes it outside
+- What happens when buffer is full? 
+- Usually, producer goes to sleep, same as consumer when buffer is empty
+- Race condition occurs because access to an item number variable is unconstrained.
+- Use a wakeup waiting bit. Set if process is still awake, when it goes to sleep later, wake it up and clear bit
+
+====================================================
+2.3.5: Semaphores
+====================================================
+
+Semaphore:
+- New variable type proposed by Dijkstra
+- Could have value of 0 indicating no wakeups were saved, or a 1 for a pending wakeup
+- Two operations on Semaphores:
+  1.) Down (~sleep())
+  2.) Up (~wakeup())
+- Checking value, changing, and going to sleep can be indivisible atomic action
+
+====================================================
+2.3.6: Mutexes
+====================================================
+
+Mutex:
+- Simplified version of the semaphore
+- Shared variable in one of two states:
+  1.) Unlocked
+  2.) Locked
+- Only 1 bit to represent it
+- Two procedures used with it:
+  1.) mutex_lock
+  2.) mutex_unlock
+- No busy waiting because if a thread fails to acquire a lock, it yields it to another task
+
+How do we share the turn variable in semaphores or a common buffer?
+  1.) Semaphores can be stored in kernel and accessed via system calls
+  2.) Modern OSs have ways for processes to share some portion of address space with other address spaces
+  
+Futexes:
+- Fast User Space Mutex
+- Implements basic locking but avoids dropping into kernel unless it has to (expensive operation)
+- Consists of two parts:
+  1.) Kernel Service
+  2.) User Library
+- Kernel Service provides a wait queue for multiple processes to wait on a lock
+
+Mutexes in Pthreads:
+- Basic mechanism of a mutex_lock
+- Pthreads provide a number of functions that can be used to synchronize threads
+- Also offers condition variables as a synchronization mechanism
+  > Mutexes are good for controlling access to a critical region
+  > Condition Variables allow threads to block due to some condition not being met
+  > Almost always used together
+
+====================================================
+2.3.7: Monitors
+====================================================
+
+Deadlocks can occur with semaphores and mutexes
+
+To avoid this, use monitor
+
+Monitor:
+- A higher level synchronization primitive
+- Collections of procedures, variables, and data structures grouped in a module or package
+- Only one process can be active in the montor at any instant
+- Because compiler is implementing mutual exclusion, much less likely to go wrong
+
+However, we also need a way for processes to block:
+- Use condition variables with two operations:
+  1.) Wait
+  2.) Signal
+- Condition variables are not counters. They do not accumlate signals for later like semaphores do
+- If signaled with nobody waiting, signal is lost
+- Wait and Signal are a lot like sleep and wakeup, however, they will not conflict if synchronization
+  keywords are included between process calls
+
+====================================================
+2.3.8: Message Passing
+====================================================
+
+Message Passing
+- Uses two primitives:
+  1.) Send
+  2.) Receive
+- System calls, not language constructs
+- If received, receiver can send back acknowledgement message
+- Authentication is also an issue.
+
+====================================================
+2.3.9: Barriers
+====================================================
+
+Implement barriers to make it so that all n operations have to finish before n+1 can start
+- Think houses -> hotels in Monopoly
+
+====================================================
+2.3.10: Avoiding Locks: Read-Copy-Update
+====================================================
+
+Basically, monitor a tree-based structure so that no operations are carried out in the same section
+at the same time. Accomplished using a wait defined as a "grace period"
+
+====================================================
+2.5: Classical IPC Problems
+====================================================
+====================================================
+2.5.1: The Dining Philosophers Problem
+====================================================
+
+Proposed by Dijkstra
+
+When a philosopher gets sufficiently hungry, she tries to acquire her left and right forks, one at a time, 
+in either order. If successful in acquiring two forks, she eats for a while, then puts down the forks, 
+and continues to think. The key question is: Can you write a program for each philosopher that does
+what it is supposed to do and never gets stuck?
+
+====================================================
+2.5.2: The Readers and Writers Problem
+====================================================
+
+Imagine, for example, an airline reservation system, with many competing processes wishing to read and write it. It is
+acceptable to have multiple processes reading the database at the same time, but if
+one process is updating (writing) the database, no other processes may have access
+to the database, not even readers. The question is how do you program the readers
+and the writers?
+
+
+
+
