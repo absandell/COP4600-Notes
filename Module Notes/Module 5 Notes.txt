@@ -1,0 +1,398 @@
+>>>>>   3.3.2 - 3.5 Notes   <<<<<
+________________________________
+
+262 - 264
+
+====================================================
+3.3.2: Page Tables
+====================================================
+
+How it Works:
+> Virtual Address is split into a virtual page number and an offset
+> Virtual page number is used as an index into the page table to find the entry for that virutal page
+> From page table entry, the page frame number is found
+> Page frame number is attached to the high-order end of the offset, replacing the virtual page number
+  to form a physical address that can be sent to the memory
+> Purpose of page table is to map virtual pages onto page frames
+> Page table is a function, with virtual page numebrs as the argument and the physical frame number as result
+
+Structure of a Page Table Entry
+> Structure is highly machine dependent
+
+[/ / / / / | Caching Disabled | Referenced | Modified | Protection | Present/Absent | Page frame number ]
+
+> Page frame number
+  - Most important entry
+> Present/Absent bit
+  - 1 if entry is valid
+  - 0 if virtual page is not currently in memory. Accessing causes a page fault
+> Protection bit
+  - Tells what kinds of access are permitted
+  - RWX
+> Modified Bits
+  - Keeps track of page usage
+  - When a page is written to, sets modified bit
+  - If modified, needs to be written back to disk
+  - Sometimes called 'dirty bit'
+> Referenced Bits
+  - Set whenever a page is referenced, either for reading or writing
+  - Values is used to help OS choose a page to evict when page fault happens
+> Caching Disabled Bit
+  - Important for pages that map onto device registers rather than memory
+  - Caching can be turned off so that tight loop waiting for I/O device to respond doesn't occur in OS
+  
+====================================================
+3.3.3: Speeding Up Paging
+====================================================
+
+Two Major Issues in Paging:
+1.) The mapping from virtual address to physical address must be fast
+    > Consequence of the fact that the virtual-to-physical mapping must be done on every memory reference
+	> All instructions must ultimately come from memory and many of them reference operands in memory as well
+	> It is necessary to make one, two, or more page table references per instruction
+2.) If the virtual address space is large, the page table will be large
+    > From the fact that modern computers use virtural addresses of at least 32 bit with 64 bits
+	> Need large, fast page mapping
+	> Simplest design is to have a single page table with 1 entry per virtual page
+	  - Straightforward and requires no memory references during mapping
+	  - Incredibly expensive if page table is large
+
+Translation Lookaside Buffers
+> Need to speed up page access time
+> Solution is to use a small hardware device for mapping virtual address to physical addresses
+  without going through the page table
+> Devices is called a TLB (Translation Lookaside Buffer) or Associative Memory
+> Usually inside the MMU and consists of a small number of entries.
+  - Each entry has information about 1 page, including the virtual page number, modified bits, protection bits,
+    and physical page frame.
+  - Fields have a 1:1 correspondence with fields in the page table, except for the virtual page number which is not present
+> When a virtual address is presented to the MMU for translation, hardware first check to see if its
+  virtual page number is present in the TLB by comparing it to all entries simultaneously
+> If the virtual page number is present in the TLB but the instruction is trying to write on a
+  read-only page, a protection fault is generated
+> If the virtual page number is not in the TLB. The MMU detects the miss and does the ordinary page table lookup
+  It evicts the entry from TLB and replaces it with the page table entry it just looked up
+  
+Software TLB Management
+> Previously
+  - TLB managment and handling TLB faults are done entirely by the MMU harddware
+  - Traps to OS occur only when a page is not in memory
+
+> Now
+  - Page management is done in software
+  - TLB entries are explicitly loaded by the OS
+  - When a TLB miss occurs, instead of MMU going to the page tables to find and fetch the needed page
+    reference, it generates a TLB fault and tosses the problem to the OS
+  - System must find page, remove entry from the TLB, enter a new one, and restart the instruction that faulted
+  
+Improving Performance on Machines
+> Reduce TLB misses and reduce cost of a TLB miss when it occurs
+  - To reduce TLB misses, OS can use intuition to figure out which pages are likely next, and can preload them in TLB
+  - To reduce cost, maintain large software cache of TLB entries in a fixed location whose page is always in the TLB
+  
+Soft Miss: Page referenced is not in TLB but in memory
+Hard Miss: Page itself is not in memory, and disk access is required to bring in the page (1 million time slower than soft)
+Minor Page Fault: Page is in memory, but not in the page table (pretty soft miss)
+Major Page Fault: Page needs to be brought in from disk
+Segmentation Fault: Invalid address was accessed and no mapping needs to be added in the TLB
+
+====================================================
+3.3.4: Page Tables for Large Memories
+====================================================
+
+Multilevel Page Tables
+> Avoid keeping all the page tables in memory all the time
+> Top-Level page table (1023 Second-level page tables)
+> Second-level page tables (1023 pages)
+>   [ PT1 | PT2 | Offset ]
+Bits: (10)  (10)   (12)
+
+Inverted Page Tables
+> Save lots of space, but virtual-to-physical translation is much harder
+> Process can no longer find physical page p by using p as an index into the page table, must search entire inverted page table
+> Use TLB as a solution. Can hold all of heavily used pages
+> Can have a hash table hashed on the virtual address
+
+====================================================
+3.4: Page Replacement Algorithms
+====================================================
+
+Page Fault Occurs:
+> OS has to choose a page to evict from memory to make room for the incoming page
+> If page has been modified while in memory, must be rewritten to the disk
+
+====================================================
+3.4.1: The Optimal Page Replacement Algorithm
+====================================================
+
+Easy to Describe, Impossible to Implement:
+> Page with highest label should be removed
+> Unrealizable, because OS has no way of knowing what comes next
+> Possible on second run by using page reference information collected during the first run
+
+====================================================
+3.4.1: The Not Recently Used Page Replacement Algorithm
+====================================================
+
+Most computers with VM have two status bits:
+1.) R - Set whenever the page is referenced (read or written)
+2.) M - Set whenever the page is written to
+
+Four Categories of Pages:
+> Class 0: Not referenced, not modified
+> Class 1: Not referenced, modified
+> Class 2: Referenced, not modified
+> Class 3: Referenced, modified
+
+NRU (Not Recently Used) Algorithm:
+> Removes a page at random from the lowest numbered nonempty class. Implicit in this algorithm is that it is
+  better to remove a modified page that has not been referenced in at least one clock tick
+
+====================================================
+3.4.3: The First-In, First-Out (FIFO) Page Replacement Algorithm
+====================================================
+
+FIFO (First-In, First-Out):
+> Low-overhead paging algorithm
+> On a page fault, the page at the head is removed and a new page is added to the tail of the list
+
+====================================================
+3.4.4: The Second-Chance Page Replacement Algorithm
+====================================================
+
+Modification to the FIFO algorithm that avoids throwing away a commonly used page
+> If 0, page is old and unusued (replaced immediately)
+> If 1, bit is cleared (page is put onto the end of the list of pages)
+
+If 1 and page fault, treat that one like a new page, set bit to 0
+
+Inefficient because it is constantly moving pages around on its list
+
+====================================================
+3.4.5: The Clock Page Replacement Algorithm
+====================================================
+
+Keep all page frames on a circular list in the form of a clock
+> When a page fault occurs, page being pointed to is inspected
+> If 0, evict the page
+> If 1, bit is cleared and hand is advanced
+
+====================================================
+3.4.6: The Least Recently Used (LRU) Page Replacement Algorithm
+====================================================
+
+When a page fault occurs, throw out the page that has been unusued for the longest time
+> Must maintain a linked list of all pages in memory with most recent at front
+> List must be updated on ever memory reference
+> Simplest way to implement LRU is with special hardware
+
+====================================================
+3.4.7: Simulating LRU in Software
+====================================================
+
+NFU (Not Frequently Used)
+> Only software is needed
+> When a page fault occurs, the page with the lowest counter is chosen for replacement
+> Modification to imitate LRU
+  1.) Counters are shifted right 1 bit before the R bit is added in
+  2.) R bit is added to the leftmost rather than the rightmost bit
+> Page whose counter is the lowest is removed
+> [ 1, 0, 1, 0, 1, 1 ] (0, 2, 4, 5 referenced)
+
+====================================================
+3.4.8: The Working Set Page Replacement Algorithm
+====================================================
+
+Demand Paging: Pages are loaded only on demand, not in advance
+
+Locality of Reference: During any phase of execution, the process references only a relatively small fraction
+of its pages
+
+Working Set: Set of pages that a process is currently using
+> If entire working set is in memory, process will run without causing many faults until it moves into another execution phase
+> If available memory is too small to hold the entire working set, process will cause many page faults and run slowly
+
+Thrashing: Program causing page faults every few instructions
+
+Working Set Model: Paging System that tries to keep track of each process' working set and make sure that it is in memory
+
+Prepaging: Loading the pages before letting processes run
+
+Current Virtual Time: Amount of CPU time a process has actually used sinct it started
+
+Working Set Algorithm:
+> Find a page that is not in working set and evict
+> Each entry in table contains two keys:
+  1.) Approximate time page was last used
+  2.) Reference bit
+> Bit is cleared every clock tick
+> If bit is 1, virtual time is written into the last use field
+> If bit is 0, page has not been referenced in the last tick
+> If bit is 0 and age is less than T (spanning multiple ticks) page is spared, but oldest page is noted
+> Greatest age is evicted
+> If all have 1, choose one randomly
+
+====================================================
+3.4.9: The WSClock Page Replacement Algorithm
+====================================================
+
+Based on the clock algorithm and working set combined
+
+WSClock Algorithm
+> Circular list of page frames
+> Initially empty, when page is loaded added to list
+> Each entry contains time of last use and reference bit
+> If bit is 1, page has been used during the current tick
+> If bit is 0, hand advances to next page
+> If age is greater than T, and page is clean, not in working set and there is a copy in the disk. 
+> If hand goes all the way around
+  1.) At least one write has been scheduled (Keeps moving, looking for a clean page. First found is evicted)
+  2.) No writes have been scheduled (All pages are in the working set, otherwise, one write would have been scheduled)
+  
+====================================================
+3.4.10: Summary of Page Replacement Algorithm
+====================================================
+
+1.) Optimal: Not implementable, but useful as a benchmark
+2.) NRU: Very crude approximation of LRU
+3.) FIFO: Might throw out important pages
+4.) Second chance: Big improvement over FIFO
+5.) Clock: Realistic
+6.) LRU: Excellent, but difficult to implement exactly
+7.) NFU: Fairly crude approximation to LRU
+8.) Aging: Efficient algorithm that approximates LRU well
+9.) Working set: Somewhat expensive to implement
+10.) WSClock: Good efficient algorithm
+
+====================================================
+3.5: Design Issues for Paging Systems
+====================================================
+
+====================================================
+3.5.1: Local versus Global Allocation Policies
+====================================================
+
+Local Algorithms: Effectively correspond to allocating page frames among the runnable processes. The number
+				  of page frames assigned to each process varies in run time.
+> Thrashing as a result, even if there are a sufficient number of free page frames
+> Waste memory
+				  
+Global Algorithms: Dynamically allocate page frames assigned to each process varies in time.
+> Generally work better, especially when working set size can vary a lot over the lifetime of a process
+
+If global algorithm is used, it is possible to start each process up with some number of pages proportional to the process' size
+but the allocation has to be updated dynamically as the processes run. Use PFF algorithm.
+
+PFF (Page Fault Frequency) Algorithm:
+> Tells when to increase or decrease a process' page allocation
+> Says nothing about which page to replace on a fault
+> Just controls size of the allocation set
+
+Works with Global Replacemenent Policies:
+> FIFO
+> LRU
+
+Works with Local Replacement Policies:
+> Working Set
+> WSClock
+
+====================================================
+3.5.2: Load Control
+====================================================
+
+System thrashes, even with the best page replacement algorithm and optimal global allocation of page frames
+
+Good way to reduce number of processes competing for memory is to swap some of them to disk and free up all pages they are holding
+> Process can be swapped to disk and its page frames divided among other processes that are thrashing
+> If thrashing stops, can run this way
+> If not, another process has to be swapped out, repeating on and on until thrashing stops
+
+====================================================
+3.5.3: Page Size
+====================================================
+
+On average, half of the final page will be empty. Remaining space is wasted
+
+Internel Fragmentation: Wasted space in pages
+
+Small Pages
+	(Pros)
+	1.) Minimize internal fragmentation
+	2.) Small programs can run without wasting page size
+	(cons)
+	1.) Programs will need many pages and a large page tabel
+	2.) Small pages take up valuable space in TLB
+
+====================================================
+3.5.4: Separate Instruction and Data Spaces
+====================================================
+
+Using seperate I-space and D-space, both address spaces can be paged independently from one another
+> Each one has own page table
+> Does not introduce any secial complications for the OS
+
+====================================================
+3.5.5: Shared Pages
+====================================================
+
+Need to avoid users having multiple copies of the same page open at the same time
+> UNIX uses fork syscall
+> Need to check to make sure it is not in use by other users
+
+Solution: Copy on Write
+
+Copy on Write:
+> Improves performance by copying page
+> Only pages that are modified need to be copied
+> Each process now has its own private copy of the page
+
+====================================================
+3.5.6: Shared Libraries
+====================================================
+
+Modern Systems:
+> Use shared libraries to share all text pages
+> Called DLLs (Dynamic Link Libraries) on Windows
+
+Shared Libraries:
+> Linker includes small stub routine that bind to the called function at run time
+> Loaded either when the program is loaded, or when the functions in them are called for the first time
+> Entire library is read into memory in a single blow
+> If a function in library is updated, it is not necessary to recompile the programs that call it.
+> Problem: Same library assigned different addresses.
+> Solution: compile shared libraries with a flag telling compiler not to produce any instruction that use absolute addresses
+> By avoiding absolute addresses, the problem can be solved
+
+Position-Independent Code: Code that uses only relative offsets
+
+====================================================
+3.5.7: Mapped Files
+====================================================
+
+Memory Mapped Files: General version of shared libraries
+> Process can issue a system call to map a file onto a protion of its virtual address space
+> No pages are brought in when mapping, as pages are touched, they are demand paged in one at a time
+> Alternative model for I/O, file can be accessed as a char array in memory
+> If two processes map onto the same file at the same time, they can communicate over shared memory
+> Writes done by one process to shared memory are visible when the other one reads from the part of its vertual address spaced mapped onto the file
+
+====================================================
+3.5.8: Cleaning Policy
+====================================================
+
+Paging Daemon: Background process that ensures plentiful supply of free page frames
+> Sleeps most of the time, but wakes up to inspect state of memory
+
+Implement cleaning policy with a two handed clock
+> When front, daemon controlled hand points to a dirty page, page is written back to disk and the hand is advanced
+> Back, clock algorithm hand is used as page replacement
+
+====================================================
+3.5.9: Virtual Memory Interface
+====================================================
+
+Distributed Shared Memory: Advanced memory management technique that allows multiple processes over network to share set of pages
+
+
+
+
