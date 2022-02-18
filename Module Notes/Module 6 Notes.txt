@@ -1,0 +1,309 @@
+>>>>>   3.6 - 3.7 Notes   <<<<<
+________________________________
+
+274 - 283
+
+====================================================
+3.6: Implementation Issues
+====================================================
+
+====================================================
+3.6.1: Operating System Involvement with Paging
+====================================================
+
+Four Times when OS has Paging Related Work:
+1.) Process Creation
+2.) Process Execution
+3.) Page Fault
+4.) Process Termination
+
+Process Creation:
+> OS has to determine how large the program and data will be to create a page table
+> Space has to be allocated in memory for page table
+> Page table has to be in memory when process is running
+> Space has to be allocated in the swap are on disk so that when a page is swapped out, 
+  it has a place to go
+> Swap area has to be initialized with program text and and data so that when process
+  gets page faults, pages can be brought in
+> Information about the page table and wap area on disk must be recorded in the process table
+
+Process Execution:
+> MMU has to be reset for the new process
+> TLB gets flushed of previous process
+> New page table has to be made current
+> Some or all of process' pages can be brought in to memory (to reduce page faults)
+
+Page Fault:
+> OS has to read out hardware registers to determine which virtual address caused the fault
+> OS computes which page is needed and locates that page on the disk
+> OS finds an available page frame to put new page in, and if needed, evicts an old page
+> Read the needed page into page frame
+> Back up the program counter to point to the faulting instruction and rerun it
+
+Process Termination:
+> OS releases page table, some of its pages, and the disk space that the pages occupy when 
+  they are on disk
+> If some are shared with other processes, pages in memory and on disk can be released only 
+  when last process using them has terminated
+  
+====================================================
+3.6.2: Page Fault Handling
+====================================================
+
+What Happens on a Page Fault:
+1.) Hardware traps to kernel, saves the program counter on stack. Info on state of current instruction
+    is saved in special CPU registers
+	
+2.) Assembly code routine is started to save the general registers and other volatile information,
+    to keep the operating system from destroying it. This routine calls the OS as a procedure
+	
+3.) The OS discovers that a page fault has occurred, and tries to discover which virtual page
+    is needed. If a hardware register doesn't have this info, OS gets program counter, fetches
+	instruction, and parses it in software to figure out what it was doing when fault hit.
+
+4.) Once the virtual address that caused the fault is known, the system checks to see if this address
+    is valid and the protection is consistent with the access. If not, the process is sent a signal or
+	killed. If the address is valid and no protection fault has occurred, the system checks to see if
+	a page frame is free. If no frames are free, the page replacement algorithm is run to select a victim
+	
+5.) If the page frame selected is dirty, the page is scheduled for transfer to the disk, and a context
+    switch takes place, suspending the faulting process and letting another one run until the disk transfer
+	has completed. Frame is marked as busy to prevent it from being used for another purpose
+	
+6.) When page frame is clean, OS looks up disk address where needed page is, and schedules a disk operation
+    to bring it in. While the page is being loaded, the faulting process is still suspended and another
+	user process is run, if one is available
+	
+7.) When the disk interrupt indicates that the page has arrived, the page tables are updated to reflect
+    its position, and the frame is marked as being in the normal state
+	
+8.) The faulting instruction is backed up to the state it had when it began and the program counter
+    is reset to point to that instruction
+	
+9.) The faulting process is scheduled, and the OS returns to the assembly routine that called it
+
+10.) Routine reloads the registers and other state information and returns to user space to continue
+    execution as if no fault had occurred.
+
+====================================================
+3.6.3: Instruction Backup
+====================================================
+
+Worst Case for Restarting Instruction After Referencing Page not in Memory:
+> OS must determine where the first byte of the instruction is
+> The value of the program counter at the time of the trap depends on which operand faulted
+  and how the CPU's microcode has been implemented
+> Impossible for OS to determine unambiguously where the instruction began
+
+Solutions:
+> On some machines, there is a hidden internal register in which the program counter is copied before
+  each instruction is executed.
+> Also have a second register telling which registers have already been autoincremented or autodecremented,
+  and by how much.
+> OS can unambiguously undo all the effects of the faulting instruction so that it can be restarted
+
+====================================================
+3.6.4: Locking Pages in Memory
+====================================================
+
+Virtual Memory and I/O interact in subtle ways
+> Consider a process that just issued a system call to read from some file or device into 
+  a buffer within its address space.
+> While waiting for the I/O to complete, the process is suspended and another process is allowed to run
+
+If paging algorithm is global, there is a small, but nonzero chance that the page containing the I/O buffer
+will be chosen to be removed from memory.
+> If I/O devices is currently in the process of doing a DMA transfer to that page, removing it will cause
+  part of the data to be written in the buffer where they belong, and part of the data to be written over
+  the just-loaded page
+> One solution is to lock pages engaged in I/O in memory aka Pinning
+> Another solution is to do all I/O to kernel buffers and then copy data to user pages later
+
+====================================================
+3.6.5: Backing Store
+====================================================
+
+Simplest Algorithm for Allocating Page Space on Disk:
+> Have a special swap partition on the disk, or a separate disk from the file system
+> Most UNIX systems work this way
+> Partition does not have normal file system, elminating all of the overhead of converting offsets in
+  files to normal block addresses
+> Block numbers relative to the start of the partition are used throughout
+> Swap partition is empty on boot up, and is represented as a single entry giving its origin and size
+> When first process starts, a chunk of the partition area the size of the first process is reserved and
+  the remaining are reduced by that amount
+> As new processes are started, they are assigned chunks of the swap partition equal in size to their
+  core images. As they finish, their disk space is freed
+> Associated with each process is the disk address of its swap area.
+> Information is kep in the process table
+> To calculate the address to write a page, just add the offset of the page within the virtual address
+  space to the start of the swap area
+> Before a process can start, the swap area has to be initialized
+  - One way, copy the entire process image to swap area and bring it in as needed
+  - Other way, load entire process in memory and let it be paged out as needed
+
+Problem with Model
+> Processes can increase in size after starting
+> Data area can sometimes grow
+> Stack can always grow
+> Might be better to reserve separate swap areas for the text, data, and stack stored on more than
+  one chunk on the disk
+> Or, we can dynamically allocate and deallocate disk pace for each page when it is swapped in and out
+
+====================================================
+3.6.6: Separation of Policy and Mechanism
+====================================================
+
+MMU Division:
+1.) Low-level MMU handler
+2.) Page fault handler that is part of the kernel
+3.) External pager running in user space
+
+MMU Handler:
+> All the details of how the MMU works
+> Machine-dependent code, must be rewritten for each new platform the OS is ported to
+
+Page Fault Handler:
+> Machine-independent code and contains most of the mechanism for paging
+
+External Pager:
+> Determines policy
+> Runs as a user process
+> Notified when a process starts up, so that it can set up the process' page map and allocate the 
+  necessary backing store on the disk if need be
+> As process runs, if new objects are mapped into its address space, pager is notified again
+
+On Page Fault:
+1.) Fault Handler Figures out which virtual page is needed to handle a page fault, and sends message
+    to the external pager. 
+2.) External pager then reads the needed page in from teh disk and copies it to a portion of its 
+    own address space and tells fault handler where the page is. 
+3.) Fault handler then unmaps the page from the external pager's address space and asks the 
+    MMU handler to put it in the user's address space at the right place.
+4.) Then user process can restart
+	
+Problems with this approach:
+> External pager does not have access to the R and M bits of all the pages
+> Need some mechanism to pass information to external pager, or the page replacement algorithm
+  must go in the kernel
+> If the second, fault handler tells external pager which page it has selected for eviction and
+  provides data by including it in a message or mapping it to external pagers' address space
+  
+Main Advantage:
+> More modular code and greater flexibility
+
+Main Disadvantage:
+> Extra overhead of crossing the user-kernel boundary several times
+> Overhead of the various messages being sent between the pieces of the system
+
+Better to sacrifice some performance for more reliable software long term
+
+====================================================
+3.7: Segmentation
+====================================================
+
+Having 2+ separate virtual address spaces may be better than 1
+
+Ex.) Compiler has many tables built as compilation proceeds
+    1.) Source text saved for the printing listing
+	2.) Symbol table, containing names and attributes of variables
+	3.) Table containing all the integer and floating-point constants
+	4.) Parse tree, containing the syntactic analysis of the program
+	5.) Stack used for procedure calls within the compiler
+	
+[                ]
+[   Call Stack   ] ^
+[                ]
+[   Parse Tree   ]
+[                ]
+[ Constant Table ] ^
+[                ]
+[   Source Text  ] ^
+[  Symbol Table  ] ^
+
+General Solution:
+> Provide machine with segments
+> Segments: Completely independent address spaces
+  - Consists of a linear sequence of addresses starting at 0 and going up to max val
+  - Length of segment may be anything from 0 to max addresses allowed
+  - Different segments may have different lengths
+  - Length of stack segment may be increased when something is pushed onto stack and decreased when something
+    is popped off the stack
+  - Because each segment is a separate address space, different segments can grow or shrink independently
+    without affecting one another
+  - If a stack in one segment needs more address space to grow, it can have it because there is nothing else
+    in this address space to grow into
+  - Segments can fill up, but because they are so large, this is pretty rare
+  - Segments are a logical entity, which the programmer is aware of and uses as a logical entity. 
+  - Segment does not ususally contain a mix of different data types
+  - Segmentation facilitates sharing procedures or data between several processes
+  - Different segments can have different kinds of protection
+  - Procedure segment can be specified as execute only, floating-point is read/write only, etc.
+
+====================================================
+3.7.1: Implementation of Pure Segmentation
+====================================================
+
+Segmentation vs Paging:
+> Pages are fixed size
+> Segments are not fixed size
+
+External Fragmentation: Wasted memory in holes from replacement
+> Solved by compaction
+
+====================================================
+3.7.2: Segmentation with Paging: MULTICS
+====================================================
+
+If segments are large, it may be inconvenient to keep them in main memory
+> Try paging them so that only those pages of a segment that are actually needed have to be around
+
+.
+.          Consideration              |       Paging          |      Segmentation
+--------------------------------------------------------------------------------------
+Need the programmer to be aware that  |       No              |         Yes
+this technique is being used?         |                       |
+--------------------------------------------------------------------------------------
+How many linear address spaces        |        1              |         Many
+are there?                            |                       |
+--------------------------------------------------------------------------------------
+Can the total address space exceed    |       Yes             |         Yes
+the size of physical memory?          |                       |
+--------------------------------------------------------------------------------------
+Can procedures and data be            |        No             |         Yes
+distinguished and separately          |                       |
+protected?                            |                       |
+--------------------------------------------------------------------------------------
+Can tables whose size fluctuates      |        No             |         Yes
+be accommodated easily?               |                       |
+--------------------------------------------------------------------------------------
+Is sharing of procedures between      |        No             |         Yes
+users facilitated?                    |                       |
+--------------------------------------------------------------------------------------
+Why was this technique invented?      |  To get a large       |  To allow programs and
+.                                     |  linear space without |  data to be broken up
+.								      |  having to buy more   |  into logically
+.								      |  physical memory      |  indpendent addresses
+.                                     |                       |  spaces and to aid
+.									  | 					  |  sharing and protection
+---------------------------------------------------------------------------------------
+
+When a memory reference occured:
+1.) Segment number was used to find the segment descriptor
+2.) Check was made to see if the segment's page table was in memory.
+   > If it was, it was located
+   > If not, a seg fault occurred
+   > If a protection violation, a fault (trap) occurred
+3.) Page table entry for requested virtual page was examined
+   > If page was not in memory, page fault is triggered
+   > If page was in memory, main-memory address of the start of the page was extracted
+     from the page table entry
+4.) Offset was added to the page origin to give the main memory address where the word was located
+5.) Read or store took place
+
+
+====================================================
+3.7.3: Segmentation with Paging: The Intel x86
+====================================================
+
+
