@@ -1,0 +1,422 @@
+>>>>>   4.3 - 4.42 Notes   <<<<<
+________________________________
+====================================================
+4.3: File-System Implementation
+====================================================
+====================================================
+4.3.1: File-System Layout
+====================================================
+
+File systems are stored on disks
+
+Disks are divided up into 1+ partitions, with independent file systems on each partition
+
+Sector 0: MBR (Master Boot Record)
+> Used to boot the computer
+> End of MBR contains the partition table
+> Tables gives starting and ending addresses of each parition
+> One partition in table is marked as active
+> When booted, BIOS reads in and executes the MBR
+> Process:
+  1.) MBR locates active partition, and reads in the first block (boot block) and executes it
+  2.) Program in boot block loads OS contained in that partition
+    - Every program contains a boot block for uniformity
+
+Superblock:
+> Contains all key parameters about file system and is read into memory when computer
+  is booted or the file system is first touched
+> Typical Information:
+  - Magic number to indentify file-system type
+  - Number of blocsk in file system
+  - Other administrative info
+
+[ Boot Block | Superblock | Free space mgmt | I-Nodes | Root dir | Files and Directories ]
+
+> Free space mgmt: e.g. Bitmap
+> I-Nodes: Array of data structures, one per file, with file info
+> Root directory: Top of file-system tree
+> Files and Directories: Everything else
+
+====================================================
+4.3.2: Implementing Files
+====================================================
+
+The following section looks at methods for keeping track of which disk blocks go with which file
+
+Contiguous Allocation:
+> Simplest allocation scheme
+> Store each file as a contiguous run of disk blocks
+> 50KB -> 50 disk blocks
+> Each file begins at the start of a new block
+> Advantages:
+  1.) Simple to implement
+    - Keeping track of where a file's blocks are is redeuced
+  2.) Read performance is excellent
+    - Entire file can be read from the disk in a single operation
+	- Only one seek needed (to the first block)
+	- No more seeks or rotational delays are needed
+	- Data comes in at the full bandwidth of the disk
+> Disadvantages:
+  1.) Disk Fragmentation
+    - When a file is removed, blocks are naturally freed
+	- Leaves a run of free blocks on the disk
+	- The disk is not compacted on the spot to squeeze hole (would take hours or even days)
+	- Leads to checkerboarding
+> Still usable on DVDs
+  - File system: UDF (Universal Disk Format)
+  - Uses 30-bit number to represent file length, limited to 1GB Size
+  - Extants: Physical pieces of the single logical file
+  
+Linked-List Allocation
+> Store files as a linked list of disk blocks
+> First word of each block is used as pointer to the next one
+> Advantages: 
+  1.) No space lost to disk fragmentation 
+    - Every disk block can be used in this method
+	- There is still internal fragmentation for last block
+> Disadvantages:
+  1.) Random Access is Extremely Slow
+    - To get block n, OS starts at beginning and has to read to n-1 blocks
+  2.) Amount of Data Storage in a block is no longer a power of two
+    - Pointer takes up a few bytes
+	- Less efficien
+	- Generates extra overhead
+
+Linked-List Allocation Using a Table in Memory
+> Eliminates both disadvantages of linked-list allocation by taking the pointer
+  word from each disk block and putting it in a table in memory
+> FAT (File Allocation Table): Table in memory
+> Advantages:
+  1.) Random Access is easier
+    - No disk references on search because chain is entirely in memory
+> Disadvantages:
+  1.) Entrie table must be in memory at all time
+    - Need an entry for each of the disk blocks
+	- Does not scale to large disks
+	- Was original MS-DOS file system (still supported)
+	
+I-Nodes
+> Associate each file with a data structure called I-Node
+> Index-Node (I-Node): Lists the attributes and disk addresses of the file's blocks
+> Basically a page table (Key/Ptr)
+> Advantages:
+  1.) Much smaller array than Linked-List Table
+    - Uses fixed number of addresses in each table, does not grow
+> Disadvantages:
+  1.) If table size grows beyond allocation
+    - Last entry is a pointer to another table of addresses
+	- Would likely lead to a lot of wasted space due to another table being mainly empty
+
+====================================================
+4.3.3: Implementing Directories
+====================================================
+
+Before a file can be read it must be opened
+
+When opened:
+> OS uses the path nume supplied by user to find directory entry on disk
+> Directory entry provides info needed to find the disk blocks
+> Depending on system, this info may be the disk address of the entire file,
+  the number of the first block, or the number of the I-Node
+> Main function is to map the ASCII name of file onto the info needed to locate the data
+
+To store directory info, use fixed size entries or I-Nodes
+> Fixes size: Larger
+> I-Node: SMaller, just a file name and an I-Node number
+
+Approaches to Supporting File Names:
+1.) Set limit on file-name length
+  - Usually 255 chars
+  - Simple, but wastes a ton of directory space, since very few files have long names
+2.) Allow variable portions
+  - Initial fixed portion for each entry
+  - Variable contents after fixed header
+  - Disadvantages:
+    1. External Fragmentation
+	  > Bad, but compacting memory is now feasible
+	2. Single directory could span multiple pages
+	  > Page fault may occur when reading file name
+3.) Make directory entries fixed length, keep file names in heap at end of directory
+  - Advantages:
+    1. When an entry is removed, the next file entered will always fit there
+	2. No longer need any filler characters for file name spacers
+	
+So far, all directories are built for linear searches. To speed up, use a hash table for each directory
+
+Hash Table
+> Advantages:
+  1.) Much faster lookup
+> Disadvantages:
+  2.) Complex administration
+> Only a serious candidate in systems where directories will contain hundreds - thousands of files
+
+Can also speed up search using caching from previous search results
+
+====================================================
+4.3.4: Shared Files
+====================================================
+
+Link: COnnection between directory and a shared file
+
+The file system is now a Directed Acyclic Graph rather than a tree
+> Complicates maintenance, but unavoidable
+
+Problems with sharing files:
+> If directories contain disk addresses, then a copy of disk addresses will have to be made
+  in B's directory with file is linked. If B or C appends to file, new blocks will only be in the directory
+  where the changes were made. This defeats the point of sharing
+ 
+Solutions:
+  1.) Disk blocks are kept in a data structure
+    - Not listed in the directories, but in a data structure associated with the file itself
+	- Directories would point just to the data structure
+	- I-Node recored file owner as C
+	- Creating a link does not change ownership, but id does increase the link count in the I-NOde
+	- If directory is removed, need to leave I-Node intact with count set to 1
+  2.) B creates a link file to C 
+    - Creates a LINK file from B to C's file
+	- Enter LINK file in B's directory
+	- When B reads from the linked file, OS sees type, looks up the name of the file, and reads that file
+    - Called symbolic linking
+	- When owner removes file, it is just destroyed
+	- Requires extra overhead
+	- Must read file containing path, path must be parsed and followed until I-NOde is reached
+	- Leads to extra disk accesses
+	- I-Node is needed for each symbolic link, as well as an extra disk block to store the path itself
+	- Files can have two or more paths
+	- Copies of linked files might be dumped twice upon search or programs access
+
+====================================================
+4.3.5: Log-Structured File Systems
+====================================================
+
+As CPUs get faster and RAM memories get larger, disk caches are also increasing rapidly
+> No disk access need to satisy most reads
+
+Small writes are inefficient and will make up majority of future disk accesses
+> Creating a new file-Need to edit:
+  - I-Node for directory
+  - Directory block
+  - I-Node for file
+  - File itself
+> Need writes for consistency
+> LFS tries to achieve full bandiwth of disk
+> Structure entire disk as a big log
+
+Periodically, all pending writes buffered in memory are put in single segment and written to disk as a
+continuous segment at the end of the log
+
+In log design, I-Nodes still exits and have same structure, but are scattered all over log, instead of
+being in a fixed position on the disk
+
+When an I-Node is located, locating blocks is done as usual
+
+Finding an I-Node is much harder, since its address cannot simpley be calculated from its I-Number
+> Entry i in map points to i-node i on the disk
+> Map is kept on disk, b ut it is also cached, so the most heavily used parts will be in memory most of the time
+
+Summary:
+> All writes are initially buffered in memory
+> Periodically, all the buffered writes are written to the disk in a single segment, at the end of the log
+> Opening a file consists of using the map to locate the I-Node for the file 
+> When I-Node has been located, address of the blocks can be found from it
+> All of the blocks will themselves be in segments somewhere in the log
+
+However, log will eventually occupy entire disk
+
+Solution:
+> LFS has a cleaner that spends time scanning log circularly to compact it
+> Disk is a large circular buffer with writer thread adding new segments to the front, and a cleaner thread
+  removing old ones from the back
+  
+LFS outperforms UNIX on small writes, with a performance as good as or better than UNIX for reads and large writes
+
+====================================================
+4.3.6: Journaling File Systems
+====================================================
+
+Journaling File Systems:
+> Keep a log of what file system is goind to do before it does so
+> If system crashes before it can do its planned work
+> Upon reboot, the system can look in the log to see what was going on before crash and then finish the job
+
+Remove a file in UNIX:
+1.) Remove the file from its directory
+  - If crash occurs here, I-Node and file blocks will not be accessible from any file or available for reassignment
+2.) Release the I-Node to the pool of free I-Nodes
+  - If crash occurs here, only the blocks are lost
+3.) Return all the disk blocks to the pool of free disk blocks
+
+Journaling Procedure:
+1.) Write a log entry listing the three actions to be completed
+2.) Log entry is writtend to disk
+3.) After log entry has been writted, do the various opertaions
+4.) After operations complete successfully, log entry is erased
+> If system crashes, file system can check the log to see if any operations were pending
+> If some were left, all of them can be rerun until the file is correctly removed
+
+Logged operations must be idempotent (can be repeated as often as necessary without harm)
+
+For extra reliability, introduce concept of atomic transaction
+
+NTFS has a journaling system and is rarely corrupted by system crashes
+
+====================================================
+4.3.7: Virtual File Systems
+====================================================
+
+Virtual File System
+> Used to integrate multiple file systems into an orderly structure
+> Abstracts out that part of the file system that is common to all file systems
+> Put abstraction into a separate layer that calls the underlying concrete file structures to actually manage the data
+> Handeled by standard POSIX calls
+> VFS Interface
+  - Consists of several dozen function calls that the VFS can make to each file system to get work done
+  - To create a new file system that works with the VFS, designer of new file system must make sure it meets VFS requirements
+> Not always partitions on the local disk
+> Essentially object oriented
+> Key Objects:
+  - Superblock: Describes a file system
+  - V-Node: Describes a file
+  - Directory: Describes a file system directory
+
+Virtual File System Procedure:
+1.) When booted, root file system is registered with the VFS
+2.) When other file systems are mounted, they must register with the VFS
+3.) When a file system registers, it provides a list of the addresses of the functions the VFS requires
+    either as one long call vector (table) or several, one per VFS object as demanded
+4.) Once a file system is registered with the VFS, VFS knows how to read a block
+
+
+After Mounting:
+1.) VFS parses path and identifies a new file system has been mounted
+2.) Finds the root directory of the mounted file system
+3.) Looks up the path there
+4.) VFS creates a V-Node in RAM along with other information, and most important, the pointer to the table of
+    functions to call for operations on V-Nodes
+5.) After V-Node has been created, the VFS makes an entry in the file descriptor table for the calling process
+    and sets it to point to the new V-Node
+6.) VFS returns the file descriptor to the caller so it can use it to read, write, and close the file
+7.) Later, when the process does a read using the file descriptor, the VFS locates the V-NOde from the process
+    and file descriptor tables and follows the pointer to the table of functions, which are all adresses within
+	the concrete file system where the file resides
+8.) VFS has no clue what medium the data is coming from
+
+===================================================
+4.4: File-System Management and Optimization
+====================================================
+====================================================
+4.4.1: Disk-Space Management
+====================================================
+
+Two general strategies for storing an n byte file:
+1.) n consecutive bytes of disk space are allocated
+2.) File is split up into a number of contiguous blocks
+
+Because files grow, when using contiguous space it may have to be moved disk. 
+Thus, file system chop files into fixed-size blocks that don't have to be adjacent
+
+Block Size
+> If unit allocation is too large, we waste space
+> If unit allocation is too small, we waste time
+
+Keeping Track of Free Blocks
+> Two Methods:
+  1.) Linked list of disk blocks
+    - Each block holds as many free disk block numbers as will fit
+  2.) Bitmap
+    - Disk with n blocks requires a bitmap with n bits
+	- Free blocks are represented by 1s in the map, allocated blocks by 0s
+
+Free Linked List Method:
+> 1 block of pointers kept in main memory
+> When a file is created, the needed blocks are taken from the blocks of pointers
+> When a file is deleted, its blocks are freed and added to the blocks of pointers in main memory
+> When block fills up, it is written to disk
+> This method leads to unnecessary disk I/O
+> Alternative:
+  - Split the full block of pointers
+  - Avoids most of disk I/O
+
+Bitmap Method:
+> Keep 1 block in memory
+> Go to disk for another only when it becomes completely full or empty
+> By doing all the allocation from a single block of the bitmap, the disk blocks will be close together
+> Because bitmap is fixed-size data structure, if kernel is paged, bitmap can be put in VM and have
+  pages paged in as needed
+
+Disk Quotas
+> Can enfore disk quotas on multiuser OS
+> System administrator assigns each user a max allotment of files and blocks
+> When a user opens a file, attributes and disk addresses are located and put into an open-file table in main memory
+> Attributes include an entry telling who the owner is
+> Any increases in the file's size will be charged to the owner's quota
+> Second Table contains the quota record for every user with a currently open file, even if file is opened by someone else
+> When a new entry is made in the open-file table, a pointer ot the owner's quota record is entered into it
+> Every time a block is added to a file, the total number of blocks charged to the owner is incremented and a check is made
+  against both the soft and hard limits
+  - Soft limit can be exceeded
+  - Hard limit may not be exceeded. Attempts to do so will result in an error
+> If counter gets to 0, and warning has been ignored, user will not be permitted to log in.
+
+====================================================
+4.4.2: File-System Backups
+====================================================
+
+Backups to Tape handle 1 of 2 problems:
+1.) Recover from disaster
+2.) Recover from stupidity
+
+Issues:
+1.) Should the entire file system be backed up or only part of it?
+2.) Incremental dumps of daily changed files to avoid waste
+3.) Compress data before writing to tape?
+4.) Difficult to perform a backup on on active file system. May have to free using snapshot?
+5.) Still need to make sure physical security is in place (social engineering, etc.)
+
+Strategies for dumping a disk to a backup disk:
+1.) Physical Dump
+  > Starts at block 0 of the disk, writes all the disk blocks onto the output disk in order
+  > Stops when it has copied the last one
+  > Program is so simple, it could be 100% bug free
+  > Concerns:
+    - No value in backing up unused disks. If it can obtain access to free-block data structure, 
+	  can avoid dumping unusued blocks
+	- Dumping bad blocks. Nearly impossible to avoid bad blocks, but needs to hand detection and
+	  replacement using disk controller
+  > Advantages:
+	- Simplicity
+	- Great speed (runs at speed of disk)
+  > Disadvantages:
+    - Inability to skip selected directories
+	- Inability to make incremental dumps
+	- Inability to restore individual files on request
+2.) Logical Dump
+  > Starts at one or more specified directoreis and recursively dumps all files and directories foudn there that have
+    changed since some given base date
+  > Dump disk gets a series of carefully identified directories and files, which makes it easy to restore a specific file
+    or directory upon request
+  > Algorithm
+    - Dumps all directories that lie on modified path for 2 reasons:
+	  1.) Make it possible to restore the dumped files and directories to a fresh file system on a different computer
+	  2.) Make it possible to incremnetally restore a single file
+	- Maintains a bitmap index by I-Node number with several bits per I-Node
+	- Bits will be set and cleared in this map as the algorithm proceeds
+	- 4 Phases of Operation:
+	  1.) Begins at the starting directory (the root in this example) and examines all the entries in it
+	  2.) Recursively walks the tree again, unmarking any directories that have no modified files or directories
+	      in them or under them
+	  3.) Scans the I-Nodes in numerical order, dumping all the directories that are marked for dumping
+	  4.) Files marked are also dumped, again prefixed by their attributes
+  > Disadvantages:
+    - Free block list is not a file, and thus not dumped. Must be reconstructed from scratch
+	- If a file is linked to 2+ directories, file must only be restored once
+	- UNIX files may contain holes. Wasted byte space
+	- Special files like pipes should never be dumped, no matter what directory they are in
+
+
+
+
+
+
+
