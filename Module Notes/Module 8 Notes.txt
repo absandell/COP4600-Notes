@@ -1,0 +1,399 @@
+>>>>>   4.4.3 - 4.4.5, 5.1 - 5.2 Notes   <<<<<
+________________________________
+
+====================================================
+4.4.3: File-System Consistency
+====================================================
+
+Reliability is an issue in file-system consistency
+> File systems read blocks, modify them, and write them out later
+> Critical issue if the blocks that have not been written out are
+  I-Node blocks, directory blocks, or blocks containing free list
+  
+Computers have utility program to check file-system consistency
+> Runs when the system is booted
+> All file system checkers verify each file system independently of the other ones
+
+Two kinds of consistency check can be made:
+1.) Blocks
+  > Program builds two tables, with a counter in each for each block
+  > Counter in first table keeps track of how many times each block is present in file
+  > Counter in second table keeps track of how often each block is present in the free list
+  > Reads all I-Nodes using a raw device, which ignores file structure
+  > Returns all disk blocks starting at 0
+  > Starting from an I-Node, it is possible to build a list of all block numbers
+    used in the corresponding file
+  > As each block number is read, counter if first table is incremented
+  > Program examines the free list (or bitmap) to find all blocks that are not in use
+  > Each occurence of a block in the free list results in its counter in the second table being incremented
+  > If File System is Consistent:
+    - Each block will have a 1 either in the first table or in second table
+  > If File System is Not Consistent, report a missing block
+	- Missing blocks aren't harmful, but reduce capacity of the disk
+	- Add missing blocks to free list
+  > Block occurs twice on free list:
+    - Rebuild the free list
+  > (BAD) Same data block in 2+ files
+    - If any of these removed, put on free list
+	- Solution: Allocate a free block, copy contents, and insert into an unchanged file
+  
+2.) Files
+  > Checks directory system
+  > Uses a table of counters per file (vs. per block)
+  > Starts at root directory and recursively descends the tree
+  > Inspects each directory in file system
+  > For every I-Node in every directory, increments a counter for that file's usage count
+  > If File System is Consistent:
+    - Link count in I-Node will match counter
+	- Two kinds of errors:
+	  1.) Link count in I-Node is too high
+	    > Set link count in I-Node to correct value
+		> Not serious, just wastes space
+	  2.) Link count in I-Node is too low
+	    > Catastrophic
+		> After releasing all blocks, one directory might point to unused I-Node
+		> Force link count in the I-Node to the actual number of directory entries
+		
+====================================================
+4.4.4: File-System Consistency
+====================================================
+
+Access to disk is much slower than access to memory
+
+Caching:
+  > Block Cache (aka Buffer Cache):
+  > Most common technique to reduce disk accesses
+  > Cache is a collection of blocks that logically belong on the disk but are being kept in
+	memory for performance reasons
+  > Usual way is to hash device and disk address and look up the result in a hash table
+  > All the blocks with the same hash value are chained together on a linked list
+  > LRU caching is possible but undesirable
+  > If a critical block (such as I-Node) is read into the cache and modified, but not rewritten
+	to the disk, crash will leave file system in an inconsistent state
+  > If I-Node block is put at the end of the LRU chain, it will be a while before it reaches front
+	and is rewritten to disk
+  > Blocks are rarely referenced twice in a short interval
+  > Need Modified LRU Scheme taking 2 factors into account:
+  1.) Is the block likely to be needed again soon?
+    - Blocks can be divided into categories (I-Node, Indirect, Directory, Full Data, Partially full data)
+
+  2.) Is the block essential to the consistency of the file system?
+    - Blocks can be divided into categories (I-Node, Indirect, Directory, Full Data, Partially full data)
+    - If block is essential to file system consistency, and has been modified, it should be put onto disk
+	  immediately, no matter where it is on LRU.
+	- Reduces probability that crash will wreck the system
+	
+Block Read Ahead
+> Try to get blocks into the cache before they are needed to increase the hit rate
+> If told to get block k, make sure k+1 is read in already just in case
+> Only works for files being read sequentially
+> If wrong, not a disaster, just a bit of wasted disk bandwidth
+
+Reducing Disk-Arm Motion
+> Put blocks that are likely to be access in sequence close to each other (in same cylinder)
+> If bitmap is in main memory, easy to choose a free block
+> Keep track of disk storage not in blocks but in consecutive blocks
+> Additionally, could take account of rotational positioning
+> Reading any file requires two disk accesses
+  - I-Nodes are near start of disk, requires long seeks
+  - If I-Nodes put in middle of disk, reduces seek by factor of 2
+> When creating a new file, choose any I-Node, but try to find a block is same cylinder group as I-Node
+> Only relevant for disks, not for SSDs
+
+====================================================
+4.4.5: Defragmenting Disks
+====================================================
+
+> Initially, programs and files on OS are installed sequentially
+> Over time, holes in memory are created
+> Increase performance by moving files to make contiguous holes of memory
+
+> Defragmentation works better on file systems that have a lot of free space in a contiguous region
+  at end of partition
+  
+> Some files cannot be moved, including paging file, hibernation file, and journaling log
+  - More trouble than it's worth
+
+====================================================
+5: Input/Output
+====================================================
+
+====================================================
+5.1: Principles of I/O Hardware
+====================================================
+
+====================================================
+5.1.1: I/O Devices
+====================================================
+
+1.) Block Devices
+  > Stores information in fixed-size blocks each with own address
+  > All transfers are in units of one ore more consecutive blocks
+  > Possible to read or write each block independently of all the others
+  > E.g.) Hard Disks, Blu-ray Discs, USB Sticks
+
+2.) Character Devices
+  > Delivers a stream of characters without regard to any block structure
+  > Not addressable and does not have any seek option
+  > E.g) Printers, network interfaces, etc.
+  
+Not a perfect division, but close enough
+
+Device | Data Rate
+> Keyboard | 10 bytes/sec
+> Mouse | 100 bytes/sec
+> 56k modem | 7 kb/sec
+> Scanner at 300 dpi | 1 mb/sec
+> 4x Blu-ray disc | 18 mb/sec
+> USB 2.0 | 60 mb/sec
+> USB 3.0 | 625 mb/sec
+> SONET OC-768 network | 5 gb/sec
+
+====================================================
+5.1.2: Device Controllers
+====================================================
+
+Device Controller / Adapter: Electrical Component
+> Many controllers can handle two, four, or even eight identical devices
+> Interface between controller and device is very low-level
+
+Bit Stream comes off drive:
+> Starting with a preamble
+> Middle is 4096 bits in a sector
+> End is a checksum (or ECC)
+
+Controller's job is to convert bit stream into a block of bytes and perform
+any error correction:
+> Block of bytes is assembled bit by bit in buffer inside the controller
+> After checksom has been verified and the block has been declared to be
+  error free, it can then be copied to main memory
+
+====================================================
+5.1.3: Memory-Mapped I/O
+====================================================
+
+Each controller has a few registers that are used for communicating with the CPU
+> By writing in these registers, OS can command device to deliver data, accept data,
+  switch itself on or off, or otherwise perform some action
+> By reading from these registers, OS can learn what the device's state is and other info
+
+Many devices have a data buffer that the OS can read or write
+
+How does a CPU communicate with the control registers and also with device data buffers
+> Two alternatives
+  1.) Each control register is assigned an I/O Port number (8 or 16 bit integer)
+      - Set of all the I/O ports form the I/O port space, which is protected
+	  
+  2.) Map all the control registers into the memory space
+      - Each control register is assigned a unique memory address to which no memory is assigned
+	  - Called memory-mapped I/O
+	  
+	  - Advantages:
+	    > Device control registers are variables in memory and are addressable
+		> No special protection mechanism is needed to keep user processes from performing I/O
+		> Every instruction that can reference memory can also reference control registers
+	  
+	  - Disadvantages:
+	    > Caching a device control register would be disasterous, need to selectively disable caching
+		> If one address space, all memory modules and all I/O devices must examine all memory references
+		  to see which ones to respond to. Fails on systems with multiple busses. 
+		  - Solutions:
+		    1.) Send all memory references to the memory. If memory fails to respond, CPU tries other buses
+			2.) Put a snooping device on memory bus to pass all addresses presented to potentially
+			    interested I/O devices. I/O devices may not be able to process requests at the speed the
+				memory can
+			3.) Filter addresses in the memory controller. Memory controller chip contains range registers
+			    that are preloaded at boot time. Need to figure out at boot time which memory addresses
+				are not really memory addresses
+
+====================================================
+5.1.4: Direct Memory Access
+====================================================
+
+DMA (Direct Memory Access):
+> Can only use if hardware has a DMA controller
+> DMA controller has access to the system bus independent of the CPU
+  - Includes memory address register, byte count register, control registers
+  - Specifies the I/O port to use, direction of transfer, transfer unit, and number of bytes to transfer
+
+Disk Reads without DMA:
+1.) Disk controller reads the block from the drive serially until entire block is in controller's internal buffer
+2.) Computes the checksum to verify that no read errors have occured
+3.) Controller causes an interrupt
+4.) When OS starts running, reads disk block from controller's buffer a byte or word at a time by looping
+    and storing in main memory
+	
+Disk Reads with DMA:
+1.) CPU programs the DMA controller by setting its registers so that it knows what to transfer where
+2.) Issues command to disk controller telling it to read data from the disk into its internal buffer
+    and to verify the checksum
+3.) When valid data is in disk controller's buffer, DMA can begin
+4.) DMA controller initiates the transfer by issuing a read request over the bus to the disk controller
+5.) Writes to is another bus cycle
+6.) When write is complete, disk controller sends acknowledgement signal to the DMA controller, also over the bus
+7.) DMA controller increments memory address to use and decrements byte count
+8.) After byte count = 0, DMA controller interrupts CPU to let it know that the transfer is incomplete
+
+DMA Controllers:
+> Simplest handle 1 transfer at a time
+> Complex hand multple transfers at a time
+
+Many Buses operate in two modes:
+1.) Word-at-a-Time Mode
+  > DMA controller requests transfer of one word and gets it
+  > If CPU also wants bus, it has to wait
+  > Mechanism is called "Cycle Stealing" because device controller sneaks in and steals occassional
+    bus cycle from CPU once in a while, delaying it slightly
+  
+2.) Block Mode
+  > DMA controller tells the device to acquire the bus, issue a series of transfers, then release the bus
+  > Mechanism is called "Burst Mode"
+  > More efficient than cycle stealing, because acquiring the bust takes time
+  > Downside to burst mode is that it can block the CPU and other devices for a substantial period if
+    long burst is being transferred
+	
+> DMA controllers can operate in either mode
+	
+Fly-By Mode:
+> DMA controller tells device controller to transfer the data directly to main memory
+> Alternatively, some DMA controllers have device controller send the word to the DMA controller, which
+  then issues a second bus request to write the word to wherever it is supposed to go
+> Scheme requires an extra bus cycle per word transferred, but is more flexible
+> Can perform device-to-device copies and memory-to-memory copies
+
+Most DMA controllers use physical memory addresses for their transfer.
+> Requires OS to convert virtual addresses of intended memory buffer into physical address and write
+  this physical address into DMA controller's address register
+  
+Why does DMA need internal buffer?
+1.) By doing internal buffering, the disk controller can verify the checksum before starting a transfer
+2.) Once disk transfer has started, bits keep arriving form the disk at a constant rate
+
+Argument against DMA:
+> Main CPU is often far faster than DMA controller and can do the job much faster
+> If no other work for it to do, having (fast) CPU wait for (slow) DMA controller is pointless
+> Getting rid of DMA controller is cheaper for low-end (embedded) computers
+
+====================================================
+5.1.5: Interrupts Revisited
+====================================================
+
+Interrupts:
+> When an I/O device has finished it's work, it causes and interrupt
+> Asserts a signal on a bus line that it has been assigned
+> Signal is detected by interrupt controller chip on parentboard which decides what to do
+> If no interrupts are pending, the interrupt controller handles the interrupt immediately
+> If interrupt is in progress, or simultaneous request of higher-priority interrupt, device is ignored
+> If ignored, continues to assert interrupt until serviced by CPU
+> Number of address lines is used as an index into a table called the "Interrupt Vector" used to fetch new PC
+> Location of interrupt vector can be hardwired into machine or it can be anywhere in memory with CPU register
+  pointing to its origin
+> Interrupt service procedure acknowledges interrupt by writing a certain value to one of the interrupt
+  controller's I/O ports.
+> Acknowledgement tells the controller that it is free to issue another interrupt
+> Doing so avoids race conditions
+
+Hardware always saves certain information before starting the service procedure
+> What and where varies greatly from CPU to CPU
+> At minimum, program counter must be saved so interrupted process can be restarted
+> At maximum, all visable and most internal reigsters may be saved
+> Location to save to?
+  1.) Put it in internal registers that OS can read out as needed
+    - Interrupt controller cannot be acknowledged until all potentially relevant information has been read out
+	- Long dead times when interrupts are disabled and possibly to lost interrupts and lost data
+  
+  2.) Save information on stack
+    - Whose stack?
+	- Stack pointer may point to end of page
+	- Page fault could be generated
+	- Where to save state to handle page fault?
+	- Might need to use kernel stack, but that requires an interrupt to waste CPU time
+
+Precise and Imprecise Interrupts:
+> Modern CPUs are heavily pipelined and interally parallel
+> Cannot assume that all instructions prior to interrupt will have been completed
+
+Precise Interrupt:
+> Leaves machine in well-defined state
+> State has 4 properties:
+  1.) Program Counter is saved in a known place
+  2.) All instructions before the one pointed to by the PC have completed
+  3.) No instruction beyond the one pointed to by the PC has finished
+  4.) The execution state of the instruction pointed to by the PC is known
+  
+Imprecise Interrupt:
+> Machine is not in a well-defined state
+> Machines usually vomit a large amount of internal state onto the stack to give OS ability to figure out
+  what happened
+> Code to restart is extremely complicated
+
+====================================================
+5.2: Principles of I/O Software
+====================================================
+
+====================================================
+5.2.1: Goals of the I/O Software
+====================================================
+
+Device Independence:
+> We should be able to write programs that access any I/O device without having to specify the device
+  in advance
+
+Uniform Naming:
+> Name of a file or a device should simple be a string or an integer and not depend on the device
+  in any way
+  
+Error Handling:
+> Errors should be handled as close to the hardware as possible
+> If controller discovers a read error, it should try to correct the error itself if possible
+
+Synchronous vs. Asynchronous Blocking:
+> Most physical I/O is asynchronous
+> User programs are much easier to write if the I/O operations are blocking
+> Up to OS to make operations that are actually interrupt-driven look blocking to the user programs
+
+Buffering:
+> Data that comes off a device cannot be stored directly in their final destination
+> Some devices have real time constraints, but it stores it in an output buffer in advance to decouple
+  the rate at which it is emptied
+  
+Sharable vs Dedicated Devices:
+> Some I/O devices, such as disks, can be used by may users at the same time
+> OS must be able to handle both shared and dedicated devices in a way that avoid problems
+
+====================================================
+5.2.2: Programmed I/O
+====================================================
+
+Three Different Ways that I/O can be performed:
+1.) Programmed I/O
+2.) Interrupt-Driven I/O
+3.) I/O using DMA
+
+Programmed I/O:
+> Have CPU do all of the work
+> OS copies buffer to kernel space where it can be accessed
+> Then copies to memory-mapped I/O, reading from buffer using system calls
+> Check book for very long printer example
+> Implements busy waiting
+
+====================================================
+5.2.3: Interrupt-Driven I/O
+====================================================
+
+Interrupt-Driven I/O
+> Use interrupts to allow CPU to do something else while waiting for I/O device to be ready
+> When system call is made, buffer is copied to kernel space
+> CPU calls scheduler and some other process is run
+> If device is done and ready, sends interrupt to stop current process and save state
+
+====================================================
+5.2.4: I/O Using DMA
+====================================================
+
+> Let DMA controller feed charaters to printer one at a time, without the CPU being bothered
+> DMA is programmed I/O in essence, only with DMA controller doing all of the hard work instead of main CPU
+> Frees CPU up to do other work
+> Reduces number of interrupts from one per character to one per buffer printed
+> DMA controller is usually much slower than main CPU
+> DMA is usually worth it most of the time
